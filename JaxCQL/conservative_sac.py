@@ -169,6 +169,7 @@ class ConservativeSAC(object):
 
             loss_collection['policy'] = policy_loss
 
+
             """ Q function loss """
             q1_pred = forward_qf(train_params['qf1'], observations, actions)
             q2_pred = forward_qf(train_params['qf2'], observations, actions)
@@ -285,6 +286,22 @@ class ConservativeSAC(object):
                     self.config.cql_clip_diff_max,
                 ).mean()
 
+                sa_joint = jnp.concatenate([observations, actions], axis=-1)
+                mean = jnp.mean(sa_joint, axis=0)
+                cov = jnp.cov(sa_joint, rowvar=False)
+                covinv = jnp.linalg.inv(cov)
+
+                # Compute Mahalanobis distance for each observation
+                #diffs = observations - mean
+                diff = sa_joint - mean
+                mahalanobis_distances = jnp.sqrt(jnp.sum(diff @ inv_cov * diff, axis=1))
+                mn_mahalanobis_distance = jnp.mean(mahalanobis_distances)
+
+                # Using jax.lax.cond for conditional operations
+                scale_factor = 1.0
+                weight_for_pessimism =  1.0 / (1.0 + jnp.exp(-scale_factor * (mn_mahalanobis_distance)))
+                cql_min_q_weight = 2.5 + weight_for_pessimism*5.0
+
                 if self.config.cql_lagrange:
                     alpha_prime = jnp.clip(
                         jnp.exp(self.log_alpha_prime.apply(train_params['log_alpha_prime'])),
@@ -351,7 +368,8 @@ class ConservativeSAC(object):
                  'cql_min_qf2_loss', 'cql_q1_current_actions', 'cql_q2_current_actions'
                  'cql_q1_next_actions', 'cql_q2_next_actions', 'alpha_prime',
                  'alpha_prime_loss', 'qf1_bellman_loss', 'qf2_bellman_loss',
-                 'bound_rate_cql_q1_current_actions', 'bound_rate_cql_q2_current_actions', 'bound_rate_cql_q1_next_actions', 'bound_rate_ql_q2_next_actions', 'log_pi_data'],
+                 'bound_rate_cql_q1_current_actions', 'bound_rate_cql_q2_current_actions', 'bound_rate_cql_q1_next_actions', 'bound_rate_ql_q2_next_actions', 'log_pi_data',
+                 'weight_for_pessimism', 'mn_mahalanobis_distance'],
                 'cql'
             ))
 
