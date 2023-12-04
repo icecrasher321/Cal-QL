@@ -16,6 +16,7 @@ from .utils import (
 )
 from viskit.logging import logger, setup_logger
 from .replay_buffer import ReplayBuffer
+from sklearn.ensemble import IsolationForest
 
 FLAGS_DEF = define_flags_with_default(
     env='antmaze-medium-diverse-v2',
@@ -212,6 +213,10 @@ def main(argv):
             
         with Timer() as train_timer:
 
+            isolation_forest = IsolationForest(n_estimators=100, contamination='auto', random_state=42)
+            sa_joint_obs_acs = np.concatenate([dataset["observations"], dataset["actions"]], axis=-1)
+            isolation_forest.fit(sa_joint_obs_acs)
+            
             if FLAGS.n_pretrain_epochs >= 0 and epoch >= FLAGS.n_pretrain_epochs and FLAGS.online_utd_ratio > 0:
                 n_train_step_per_epoch = np.sum([len(t["rewards"]) for t in trajs]) *  FLAGS.online_utd_ratio
             
@@ -233,7 +238,9 @@ def main(argv):
                 else:
                     # pure offline
                     batch = batch_to_jax(subsample_batch(dataset, FLAGS.batch_size))
-                train_metrics = prefix_metrics(sac.train(batch, use_cql=use_cql, cql_min_q_weight=cql_min_q_weight, enable_calql=enable_calql, pessimism_strategy=pessimism_strategy), 'sac')
+                anomaly_scores = isolation_forest.decision_function(np.concatenate([np.array(batch["observations"]), np.array(batch["actions"])],axis=-1))
+                normalized_scores = (anomaly_scores - min(anomaly_scores)) / (max(anomaly_scores) - min(anomaly_scores))
+                train_metrics = prefix_metrics(sac.train(batch, use_cql=use_cql, cql_min_q_weight=cql_min_q_weight, enable_calql=enable_calql, pessimism_strategy=pessimism_strategy, normalized_isolation_forest_scores=normalized_scores), 'sac')
             total_grad_steps += n_train_step_per_epoch
         epoch += 1
 
