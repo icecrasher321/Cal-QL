@@ -1,4 +1,3 @@
-
 import numpy as np
 import gym
 import d4rl
@@ -17,9 +16,6 @@ from .utils import (
 )
 from viskit.logging import logger, setup_logger
 from .replay_buffer import ReplayBuffer
-
-
-
 
 FLAGS_DEF = define_flags_with_default(
     env='antmaze-medium-diverse-v2',
@@ -53,6 +49,7 @@ FLAGS_DEF = define_flags_with_default(
     cql_min_q_weight=5.0,
     cql_min_q_weight_online=-1.0,
     enable_calql=True, # Turn on for Cal-QL
+    pessimism_strategy='robust_covariance', # Options - robust_covariance, autoencoder_reconstruction_error, isolated_forests
 
     n_online_traj_per_epoch=1,
     online_utd_ratio=1,
@@ -109,6 +106,7 @@ def main(argv):
     n_train_step_per_epoch = FLAGS.n_train_step_per_epoch_offline
     cql_min_q_weight = FLAGS.cql_min_q_weight
     enable_calql=FLAGS.enable_calql
+    pessimism_strategy=FLAGS.pessimism_strategy
     use_cql=FLAGS.use_cql
     mixing_ratio = FLAGS.mixing_ratio
 
@@ -235,9 +233,10 @@ def main(argv):
                 else:
                     # pure offline
                     batch = batch_to_jax(subsample_batch(dataset, FLAGS.batch_size))
-                train_metrics = prefix_metrics(sac.train(batch, use_cql=use_cql, cql_min_q_weight=cql_min_q_weight, enable_calql=enable_calql), 'sac')
+                train_metrics = prefix_metrics(sac.train(batch, use_cql=use_cql, cql_min_q_weight=cql_min_q_weight, enable_calql=enable_calql, pessimism_strategy=pessimism_strategy), 'sac')
             total_grad_steps += n_train_step_per_epoch
         epoch += 1
 
 if __name__ == '__main__':
     absl.app.run(main)
+
