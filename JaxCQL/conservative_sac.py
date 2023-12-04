@@ -15,6 +15,12 @@ from .jax_utils import (
     collect_jax_metrics
 )
 from .model import Scalar, update_target_network
+from enum import Enum
+
+class ImplementedPessimismStrategies(Enum):
+    ROBUST_COVARIANCE = "robust_covariance"
+    AUTOENCODER_RECONSTRUCTION_ERROR = "autoencoder_reconstruction_error"
+    ISOLATED_FORESTS = "isolated_forests"
 
 
 class ConservativeSAC(object):
@@ -116,15 +122,15 @@ class ConservativeSAC(object):
         self._model_keys = tuple(model_keys)
         self._total_steps = 0
 
-    def train(self, batch,  use_cql=True, cql_min_q_weight=5.0, enable_calql=False):
+    def train(self, batch,  use_cql=True, cql_min_q_weight=5.0, enable_calql=False, pessimism_strategy=ImplementedPessimismStrategies.ROBUST_COVARIANCE):
         self._total_steps += 1
         self._train_states, self._target_qf_params, metrics = self._train_step(
-            self._train_states, self._target_qf_params, next_rng(), batch, use_cql, cql_min_q_weight, enable_calql
+            self._train_states, self._target_qf_params, next_rng(), batch, use_cql, cql_min_q_weight, enable_calql, pessimism_strategy
         )
         return metrics
 
-    @partial(jax.jit, static_argnames=('self', 'use_cql', 'cql_min_q_weight', 'enable_calql'))
-    def _train_step(self, train_states, target_qf_params, rng, batch, use_cql=True, cql_min_q_weight=5.0, enable_calql=False):
+    @partial(jax.jit, static_argnames=('self', 'use_cql', 'cql_min_q_weight', 'enable_calql', 'pessimism_strategy'))
+    def _train_step(self, train_states, target_qf_params, rng, batch, use_cql=True, cql_min_q_weight=5.0, enable_calql=False, pessimism_strategy=ImplementedPessimismStrategies.ROBUST_COVARIANCE):
         rng_generator = JaxRNG(rng)
         def loss_fn(train_params):
             observations = batch['observations']
@@ -294,12 +300,16 @@ class ConservativeSAC(object):
                 # Compute Mahalanobis distance for each observation
                 #diffs = observations - mean
                 diff = sa_joint - mean
-                mahalanobis_distances = jnp.sqrt(jnp.sum(diff @ inv_cov * diff, axis=1))
+                mahalanobis_distances = jnp.sqrt(jnp.sum(diff @ covinv * diff, axis=1))
                 mn_mahalanobis_distance = jnp.mean(mahalanobis_distances)
 
                 # Using jax.lax.cond for conditional operations
                 scale_factor = 1.0
-                weight_for_pessimism =  1.0 / (1.0 + jnp.exp(-scale_factor * (mn_mahalanobis_distance)))
+                arg_to_implemented_pessimism_strat_enum = {e.value: e for e in ImplementedPessimismStrategies}
+                if arg_to_implemented_pessimism_strat_enum[pessimism_strategy] == ImplementedPessimismStrategies.ROBUST_COVARIANCE:
+                    weight_for_pessimism =  1.0 / (1.0 + jnp.exp(-scale_factor * (mn_mahalanobis_distance)))
+                else:
+                    raise NotImplementedError
                 cql_min_q_weight = 2.5 + weight_for_pessimism*5.0
 
                 if self.config.cql_lagrange:
