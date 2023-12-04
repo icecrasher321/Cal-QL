@@ -24,4 +24,5 @@ XLA_PYTHON_CLIENT_PREALLOCATE=false python -m JaxCQL.conservative_sac_main \
     --mixing_ratio=0.5 \
     --reward_scale=10.0 \
     --reward_bias=-5 \
-    --enable_calql=True 
+    --enable_calql=False \
+    --pessimism_strategy="robust_covariance" \
