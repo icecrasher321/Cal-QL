@@ -122,15 +122,15 @@ class ConservativeSAC(object):
         self._model_keys = tuple(model_keys)
         self._total_steps = 0
 
-    def train(self, batch,  use_cql=True, cql_min_q_weight=5.0, enable_calql=False, pessimism_strategy=ImplementedPessimismStrategies.ROBUST_COVARIANCE, normalized_isolation_forest_scores=None, recon_error=None):
+    def train(self, batch,  use_cql=True, cql_min_q_weight=5.0, enable_calql=False, pessimism_strategy=ImplementedPessimismStrategies.ROBUST_COVARIANCE, normalized_isolation_forest_scores=None, recon_error=None, dataset_mean=None, dataset_covinv=None):
         self._total_steps += 1
         self._train_states, self._target_qf_params, metrics = self._train_step(
-            self._train_states, self._target_qf_params, next_rng(), batch, use_cql, cql_min_q_weight, enable_calql, pessimism_strategy, normalized_isolation_forest_scores, recon_error
+            self._train_states, self._target_qf_params, next_rng(), batch, use_cql, cql_min_q_weight, enable_calql, pessimism_strategy, normalized_isolation_forest_scores, recon_error, dataset_mean, dataset_covinv
         )
         return metrics
 
     @partial(jax.jit, static_argnames=('self', 'use_cql', 'enable_calql', 'pessimism_strategy'))
-    def _train_step(self, train_states, target_qf_params, rng, batch, use_cql=True, cql_min_q_weight=5.0, enable_calql=False, pessimism_strategy=ImplementedPessimismStrategies.ROBUST_COVARIANCE, normalized_isolation_forest_scores=None, recon_error=None):
+    def _train_step(self, train_states, target_qf_params, rng, batch, use_cql=True, cql_min_q_weight=5.0, enable_calql=False, pessimism_strategy=ImplementedPessimismStrategies.ROBUST_COVARIANCE, normalized_isolation_forest_scores=None, recon_error=None, dataset_mean=None, dataset_covinv=None):
         rng_generator = JaxRNG(rng)
         def loss_fn(train_params):
             observations = batch['observations']
@@ -292,16 +292,18 @@ class ConservativeSAC(object):
                     self.config.cql_clip_diff_max,
                 ).mean()
 
-                sa_joint = jnp.concatenate([observations, actions], axis=-1)
-                mean = jnp.mean(sa_joint, axis=0)
-                cov = jnp.cov(sa_joint, rowvar=False)
-                covinv = jnp.linalg.inv(cov)
+                
+                #mean = jnp.mean(sa_joint, axis=0)
+                #cov = jnp.cov(sa_joint, rowvar=False)
+                #covinv = jnp.linalg.inv(cov)
 
                 # Compute Mahalanobis distance for each observation
                 #diffs = observations - mean
-                diff = sa_joint - mean
-                mahalanobis_distances = jnp.sqrt(jnp.sum(diff @ covinv * diff, axis=1))
-                mn_mahalanobis_distance = jnp.mean(mahalanobis_distances)
+                if pessimism_strategy == ImplementedPessimismStrategies.ROBUST_COVARIANCE:
+                    sa_joint = jnp.concatenate([observations, actions], axis=-1)
+                    diff = sa_joint - dataset_mean
+                    mahalanobis_distances = jnp.sqrt(jnp.sum(diff @ dataset_covinv * diff, axis=1))
+                    mn_mahalanobis_distance = jnp.mean(mahalanobis_distances)
 
                 # Using jax.lax.cond for conditional operations
                 scale_factor = 1.0
@@ -309,7 +311,7 @@ class ConservativeSAC(object):
                 strategy = arg_to_implemented_pessimism_strat_enum[pessimism_strategy]
                 if strategy == ImplementedPessimismStrategies.ROBUST_COVARIANCE:
                     weight_for_pessimism =  1.0 / (1.0 + jnp.exp(-scale_factor * (mn_mahalanobis_distance)))
-                    cql_min_q_weight = 2.5 + weight_for_pessimism*5.0
+                    cql_min_q_weight = 2.5 + weight_for_pessimism*3.0
                 elif strategy == ImplementedPessimismStrategies.ISOLATED_FORESTS:
                     assert normalized_isolation_forest_scores is not None
                     weight_for_pessimism = jnp.mean(normalized_isolation_forest_scores) * 1.0

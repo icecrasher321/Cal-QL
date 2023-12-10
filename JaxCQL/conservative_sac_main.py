@@ -129,6 +129,8 @@ def main(argv):
     train_metrics = None
     expl_metrics = None
 
+    dataset_mean = None
+    dataset_covinv = None
     if FLAGS.pessimism_strategy == "autoencoder_reconstruction_error":
         #AE
         sa_joint_obs_acs = np.concatenate([dataset["observations"], dataset["actions"]], axis=-1)
@@ -140,6 +142,14 @@ def main(argv):
         optimizer = flax.optim.Adam(learning_rate=lr).create(ae.init(jax.random.PRNGKey(0), jnp.ones((input_dim,))))
         # Train the model
         optimizer, loss = ae.train_loop(optimizer, sa_joint_obs_acs, num_epochs)
+    
+    elif FLAGS.pessimism_strategy == "robust_covariance":
+        sa_joint_obs_acs = np.concatenate([dataset["observations"], dataset["actions"]], axis=-1)
+        input_dim = sa_joint_obs_acs.shape[-1]
+        dataset_mean = jnp.mean(sa_joint, axis=0)
+        cov = jnp.cov(sa_joint, rowvar=False)
+        dataset_covinv = jnp.linalg.inv(cov)
+
 
     while True:
         metrics = {'epoch': epoch}
@@ -271,7 +281,7 @@ def main(argv):
                     reconstructed = ae.apply(optimizer.target, sa_joint_batch, deterministic=True)
                     err = (reconstructed-sa_joint_batch)**2
 
-                train_metrics = prefix_metrics(sac.train(batch, use_cql=use_cql, enable_calql=enable_calql, pessimism_strategy=pessimism_strategy, normalized_isolation_forest_scores=normalized_scores, recon_error=err), 'sac')
+                train_metrics = prefix_metrics(sac.train(batch, use_cql=use_cql, enable_calql=enable_calql, pessimism_strategy=pessimism_strategy, normalized_isolation_forest_scores=normalized_scores, recon_error=err, dataset_mean=dataset_mean, dataset_covinv=dataset_covinv), 'sac')
             total_grad_steps += n_train_step_per_epoch
         epoch += 1
 
