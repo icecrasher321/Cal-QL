@@ -18,6 +18,14 @@ from viskit.logging import logger, setup_logger
 from .replay_buffer import ReplayBuffer
 from sklearn.ensemble import IsolationForest
 
+
+from .autoencoder import Autoencoder
+
+import flax
+import jax
+import jax.numpy as jnp
+from flax.training.train_state import TrainState
+
 FLAGS_DEF = define_flags_with_default(
     env='antmaze-medium-diverse-v2',
     seed=42,
@@ -50,7 +58,7 @@ FLAGS_DEF = define_flags_with_default(
     cql_min_q_weight=5.0,
     cql_min_q_weight_online=-1.0,
     enable_calql=True, # Turn on for Cal-QL
-    pessimism_strategy='robust_covariance', # Options - robust_covariance, autoencoder_reconstruction_error, isolated_forests
+    pessimism_strategy='autoencoder_reconstruction_error', # Options - robust_covariance, autoencoder_reconstruction_error, isolated_forests
 
     n_online_traj_per_epoch=1,
     online_utd_ratio=1,
@@ -120,6 +128,19 @@ def main(argv):
     epoch = 0
     train_metrics = None
     expl_metrics = None
+
+    if FLAGS.pessimism_strategy == "autoencoder_reconstruction_error":
+        #AE
+        sa_joint_obs_acs = np.concatenate([dataset["observations"], dataset["actions"]], axis=-1)
+        input_dim = sa_joint_obs_acs.shape[-1]
+        ae = Autoencoder(input_dim)
+        num_epochs = 20
+        # Initialize the optimizer
+        lr = 0.001
+        optimizer = flax.optim.Adam(learning_rate=lr).create(ae.init(jax.random.PRNGKey(0), jnp.ones((input_dim,))))
+        # Train the model
+        optimizer, loss = ae.train_loop(optimizer, sa_joint_obs_acs, num_epochs)
+
     while True:
         metrics = {'epoch': epoch}
 
@@ -212,10 +233,12 @@ def main(argv):
             print("jit compiling train function: will take a while")
             
         with Timer() as train_timer:
-
-            isolation_forest = IsolationForest(n_estimators=100, contamination='auto', random_state=42)
-            sa_joint_obs_acs = np.concatenate([dataset["observations"], dataset["actions"]], axis=-1)
-            isolation_forest.fit(sa_joint_obs_acs)
+            normalized_scores = None
+            err = None
+            if FLAGS.pessimism_strategy == "isolated_forests":
+                isolation_forest = IsolationForest(n_estimators=100, contamination='auto', random_state=42)
+                sa_joint_obs_acs = np.concatenate([dataset["observations"], dataset["actions"]], axis=-1)
+                isolation_forest.fit(sa_joint_obs_acs)
             
             if FLAGS.n_pretrain_epochs >= 0 and epoch >= FLAGS.n_pretrain_epochs and FLAGS.online_utd_ratio > 0:
                 n_train_step_per_epoch = np.sum([len(t["rewards"]) for t in trajs]) *  FLAGS.online_utd_ratio
@@ -238,9 +261,17 @@ def main(argv):
                 else:
                     # pure offline
                     batch = batch_to_jax(subsample_batch(dataset, FLAGS.batch_size))
-                anomaly_scores = isolation_forest.decision_function(np.concatenate([np.array(batch["observations"]), np.array(batch["actions"])],axis=-1))
-                normalized_scores = (anomaly_scores - min(anomaly_scores)) / (max(anomaly_scores) - min(anomaly_scores))
-                train_metrics = prefix_metrics(sac.train(batch, use_cql=use_cql, cql_min_q_weight=cql_min_q_weight, enable_calql=enable_calql, pessimism_strategy=pessimism_strategy, normalized_isolation_forest_scores=normalized_scores), 'sac')
+                if FLAGS.pessimism_strategy == "isolated_forests":
+                    anomaly_scores = isolation_forest.decision_function(np.concatenate([np.array(batch["observations"]), np.array(batch["actions"])],axis=-1))
+                    normalized_scores = (anomaly_scores - min(anomaly_scores)) / (max(anomaly_scores) - min(anomaly_scores))
+    
+                if FLAGS.pessimism_strategy == "autoencoder_reconstruction_error":
+                    #AE
+                    sa_joint_batch = jnp.concatenate([batch["observations"], batch["actions"]], axis=-1)
+                    reconstructed = ae.apply(optimizer.target, sa_joint_batch, deterministic=True)
+                    err = (reconstructed-sa_joint_batch)**2
+
+                train_metrics = prefix_metrics(sac.train(batch, use_cql=use_cql, enable_calql=enable_calql, pessimism_strategy=pessimism_strategy, normalized_isolation_forest_scores=normalized_scores, recon_error=err), 'sac')
             total_grad_steps += n_train_step_per_epoch
         epoch += 1
 
