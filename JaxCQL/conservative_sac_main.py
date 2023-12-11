@@ -146,8 +146,8 @@ def main(argv):
     elif FLAGS.pessimism_strategy == "robust_covariance":
         sa_joint_obs_acs = np.concatenate([dataset["observations"], dataset["actions"]], axis=-1)
         input_dim = sa_joint_obs_acs.shape[-1]
-        dataset_mean = jnp.mean(sa_joint, axis=0)
-        cov = jnp.cov(sa_joint, rowvar=False)
+        dataset_mean = jnp.mean(sa_joint_obs_acs, axis=0)
+        cov = jnp.cov(sa_joint_obs_acs, rowvar=False)
         dataset_covinv = jnp.linalg.inv(cov)
 
 

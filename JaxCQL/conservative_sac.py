@@ -21,6 +21,7 @@ class ImplementedPessimismStrategies(Enum):
     ROBUST_COVARIANCE = "robust_covariance"
     AUTOENCODER_RECONSTRUCTION_ERROR = "autoencoder_reconstruction_error"
     ISOLATED_FORESTS = "isolated_forests"
+    BASELINE = "baseline"
 
 
 class ConservativeSAC(object):
@@ -299,17 +300,16 @@ class ConservativeSAC(object):
 
                 # Compute Mahalanobis distance for each observation
                 #diffs = observations - mean
-                if pessimism_strategy == ImplementedPessimismStrategies.ROBUST_COVARIANCE:
-                    sa_joint = jnp.concatenate([observations, actions], axis=-1)
-                    diff = sa_joint - dataset_mean
-                    mahalanobis_distances = jnp.sqrt(jnp.sum(diff @ dataset_covinv * diff, axis=1))
-                    mn_mahalanobis_distance = jnp.mean(mahalanobis_distances)
 
                 # Using jax.lax.cond for conditional operations
                 scale_factor = 1.0
                 arg_to_implemented_pessimism_strat_enum = {e.value: e for e in ImplementedPessimismStrategies}
                 strategy = arg_to_implemented_pessimism_strat_enum[pessimism_strategy]
                 if strategy == ImplementedPessimismStrategies.ROBUST_COVARIANCE:
+                    sa_joint = jnp.concatenate([observations, actions], axis=-1)
+                    diff = sa_joint - dataset_mean
+                    mahalanobis_distances = jnp.sqrt(jnp.sum(diff @ dataset_covinv * diff, axis=1))
+                    mn_mahalanobis_distance = jnp.mean(mahalanobis_distances)
                     weight_for_pessimism =  1.0 / (1.0 + jnp.exp(-scale_factor * (mn_mahalanobis_distance)))
                     cql_min_q_weight = 2.5 + weight_for_pessimism*3.0
                 elif strategy == ImplementedPessimismStrategies.ISOLATED_FORESTS:
@@ -320,6 +320,8 @@ class ConservativeSAC(object):
                     assert recon_error is not None
                     weight_for_pessimism = jnp.mean(recon_error)
                     cql_min_q_weight = 10*(1/(1+jnp.exp(-weight_for_pessimism)))
+                elif strategy == ImplementedPessimismStrategies.BASELINE:
+                    cql_min_q_weight = 5.0
                 else:
                     raise NotImplementedError
 
