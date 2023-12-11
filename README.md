@@ -1,3 +1,10 @@
+# 285 Final Project Training Instructions 
+Note: Can take a while to run (~15 hours on average).  
+In scripts/run_antmaze.sh change the --pessimism_strategy flag to equal: 
+- "robust_covariance"
+- "autoencoder_reconstruction_error"
+- "isolated_forests"
+
 # Cal-QL
 This is the implementation for our paper [Cal-QL: Calibrated Offline RL Pre-Training for Efficient Online Fine-Tuning](https://arxiv.org/abs/2303.05479) in Jax and Flax. 
 - paper link: https://arxiv.org/abs/2303.05479
