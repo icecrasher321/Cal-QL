@@ -11,14 +11,17 @@ class Autoencoder(nn.Module):
 
     @nn.compact
     def __call__(self, x, deterministic=True):
-        encoded = nn.Dense(self.encoding_dim)(x)
-        encoded = nn.relu(encoded)
+        encoded1 = nn.Dense(24)(x)
+        encoded2 = nn.Dense(self.encoding_dim)(encoded1)
+        encoded = nn.relu(encoded2)
 
         if not deterministic:
             noise = self.noise_stddev * jax.random.normal(jax.random.PRNGKey(0), encoded.shape)
             encoded += noise
-
-        decoded = nn.Dense(self.input_dim)(encoded)
+        
+        decoded1 = nn.Dense(24)(encoded)
+        decoded1 = nn.relu(decoded1)
+        decoded = nn.Dense(self.input_dim)(decoded1)
         return decoded
 
     def train_step(self, optimizer, batch, deterministic=False):
@@ -50,6 +53,5 @@ class Autoencoder(nn.Module):
             print("EPOCH=", epoch)
             for curr_batch in batches:
                 optimizer, loss = self.train_step(optimizer, curr_batch, deterministic=False)
-                
         return optimizer, loss
 

@@ -392,7 +392,7 @@ class ConservativeSAC(object):
                  'cql_q1_next_actions', 'cql_q2_next_actions', 'alpha_prime',
                  'alpha_prime_loss', 'qf1_bellman_loss', 'qf2_bellman_loss',
                  'bound_rate_cql_q1_current_actions', 'bound_rate_cql_q2_current_actions', 'bound_rate_cql_q1_next_actions', 'bound_rate_ql_q2_next_actions', 'log_pi_data',
-                 'weight_for_pessimism'],
+                 'weight_for_pessimism', 'recon_error'],
                 'cql'
             ))
 

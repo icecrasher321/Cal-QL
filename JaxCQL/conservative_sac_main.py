@@ -27,7 +27,7 @@ import jax.numpy as jnp
 from flax.training.train_state import TrainState
 
 FLAGS_DEF = define_flags_with_default(
-    env='antmaze-medium-diverse-v2',
+    env='antmaze-large-diverse-v2',
     seed=42,
     save_model=False,
     batch_size=256,
@@ -135,8 +135,9 @@ def main(argv):
         #AE
         sa_joint_obs_acs = np.concatenate([dataset["observations"], dataset["actions"]], axis=-1)
         input_dim = sa_joint_obs_acs.shape[-1]
+        print(input_dim)
         ae = Autoencoder(input_dim)
-        num_epochs = 20
+        num_epochs = 5
         # Initialize the optimizer
         lr = 0.001
         optimizer = flax.optim.Adam(learning_rate=lr).create(ae.init(jax.random.PRNGKey(0), jnp.ones((input_dim,))))
